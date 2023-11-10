@@ -28,7 +28,13 @@ public enum Type implements Serializable {
             }
         }
 
-    }, STRING_TYPE() {
+        @Override
+        public Field genEmptyField(){
+            return new IntField(0);
+        }
+
+    },
+    STRING_TYPE() {
         @Override
         public int getLen() {
             return STRING_LEN+4;
@@ -45,6 +51,11 @@ public enum Type implements Serializable {
             } catch (IOException e) {
                 throw new ParseException("couldn't parse", 0);
             }
+        }
+
+        @Override
+        public Field genEmptyField(){
+            return new StringField("", STRING_LEN);
         }
     };
     
@@ -63,5 +74,12 @@ public enum Type implements Serializable {
    *   of the appropriate type.
    */
     public abstract Field parse(DataInputStream dis) throws ParseException;
+
+
+    /**
+     * 创建一个type类型的空field
+     * @return
+     */
+    public abstract Field genEmptyField();
 
 }
