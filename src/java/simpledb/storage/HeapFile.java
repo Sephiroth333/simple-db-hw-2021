@@ -73,7 +73,11 @@ public class HeapFile implements DbFile {
     public Page readPage(PageId pid) {
         int offset = pid.getPageNumber() * BufferPool.getPageSize();
         Page page;
-        try (BufferedInputStream is = new BufferedInputStream(new FileInputStream(file))) {
+        BufferedInputStream is;
+        try {
+            FileInputStream fs = new FileInputStream(file);
+            fs.skip(offset);
+            is = new BufferedInputStream(fs);
             byte[] pageContent = new byte[BufferPool.getPageSize()];
             is.read(pageContent, offset, BufferPool.getPageSize());
             page = new HeapPage((HeapPageId) pid, pageContent);
