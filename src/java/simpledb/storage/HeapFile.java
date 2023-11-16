@@ -76,10 +76,11 @@ public class HeapFile implements DbFile {
         BufferedInputStream is;
         try {
             FileInputStream fs = new FileInputStream(file);
+            // offset是pid这个页之前的页
             fs.skip(offset);
             is = new BufferedInputStream(fs);
             byte[] pageContent = new byte[BufferPool.getPageSize()];
-            is.read(pageContent, offset, BufferPool.getPageSize());
+            is.read(pageContent, 0, BufferPool.getPageSize());
             page = new HeapPage((HeapPageId) pid, pageContent);
         } catch (Exception e) {
             throw new UnsupportedOperationException();
