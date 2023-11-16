@@ -1,12 +1,29 @@
 package simpledb.execution;
 
+import simpledb.common.DbException;
 import simpledb.common.Type;
+import simpledb.storage.Field;
+import simpledb.storage.IntField;
 import simpledb.storage.Tuple;
+import simpledb.storage.TupleDesc;
+import simpledb.transaction.TransactionAbortedException;
+
+import java.util.*;
 
 /**
  * Knows how to compute some aggregate over a set of StringFields.
  */
 public class StringAggregator implements Aggregator {
+    private int groupFieldNumber;
+    private Type groupFieldType;
+    private int valueFieldNumber;
+    private Aggregator.Op op;
+
+    private TupleDesc td;
+
+    private Map<Field, Integer> map = new HashMap<>();
+
+    private List<Tuple> tupleList = new ArrayList<>();
 
     private static final long serialVersionUID = 1L;
 
@@ -20,7 +37,16 @@ public class StringAggregator implements Aggregator {
      */
 
     public StringAggregator(int gbfield, Type gbfieldtype, int afield, Op what) {
-        // some code goes here
+        this.groupFieldNumber = gbfield;
+        this.groupFieldType = gbfieldtype;
+        this.valueFieldNumber = afield;
+        if (what != null && what.equals(Op.COUNT)) {
+            Type[] types = new Type[]{gbfieldtype, Type.INT_TYPE};
+            this.td = new TupleDesc(types);
+            this.op = what;
+        } else {
+            this.td = new TupleDesc(new Type[]{gbfieldtype});
+        }
     }
 
     /**
@@ -28,7 +54,16 @@ public class StringAggregator implements Aggregator {
      * @param tup the Tuple containing an aggregate field and a group-by field
      */
     public void mergeTupleIntoGroup(Tuple tup) {
-        // some code goes here
+        if (op == null) {
+            tupleList.add(tup);
+        } else {
+            Field gField = tup.getField(groupFieldNumber);
+            if (map.containsKey(gField)) {
+                map.put(gField, map.get(gField) + 1);
+            } else {
+                map.put(gField, 1);
+            }
+        }
     }
 
     /**
@@ -40,8 +75,46 @@ public class StringAggregator implements Aggregator {
      *   aggregate specified in the constructor.
      */
     public OpIterator iterator() {
-        // some code goes here
-        throw new UnsupportedOperationException("please implement me for lab2");
+        return new OpIterator() {
+            Iterator<Tuple> it;
+            @Override
+            public void open() throws DbException, TransactionAbortedException {
+                if(op != null){
+                    for(Map.Entry<Field,Integer> entry: map.entrySet()){
+                        Tuple tuple = new Tuple(td);
+                        tuple.setField(0,entry.getKey());
+                        tuple.setField(1, new IntField(entry.getValue()));
+                        tupleList.add(tuple);
+                    }
+                }
+                it = tupleList.iterator();
+            }
+
+            @Override
+            public boolean hasNext() throws DbException, TransactionAbortedException {
+                return it.hasNext();
+            }
+
+            @Override
+            public Tuple next() throws DbException, TransactionAbortedException, NoSuchElementException {
+                return it.next();
+            }
+
+            @Override
+            public void rewind() throws DbException, TransactionAbortedException {
+                it = tupleList.iterator();
+            }
+
+            @Override
+            public TupleDesc getTupleDesc() {
+                return td;
+            }
+
+            @Override
+            public void close() {
+                it = null;
+            }
+        };
     }
 
 }

@@ -1,12 +1,29 @@
 package simpledb.execution;
 
+import simpledb.common.DbException;
 import simpledb.common.Type;
+import simpledb.storage.Field;
+import simpledb.storage.IntField;
 import simpledb.storage.Tuple;
+import simpledb.storage.TupleDesc;
+import simpledb.transaction.TransactionAbortedException;
+
+import java.util.*;
 
 /**
  * Knows how to compute some aggregate over a set of IntFields.
  */
 public class IntegerAggregator implements Aggregator {
+    private int groupFieldNumber;
+    private Type groupFieldType;
+    private int valueFieldNumber;
+    private Aggregator.Op op;
+
+    private TupleDesc td;
+
+    private Map<Field, Record> map = new HashMap<>();
+
+    private List<Tuple> tupleList = new ArrayList<>();
 
     private static final long serialVersionUID = 1L;
 
@@ -26,7 +43,16 @@ public class IntegerAggregator implements Aggregator {
      */
 
     public IntegerAggregator(int gbfield, Type gbfieldtype, int afield, Op what) {
-        // some code goes here
+        this.groupFieldNumber = gbfield;
+        this.groupFieldType = gbfieldtype;
+        this.valueFieldNumber = afield;
+        this.op = what;
+        if (what != null) {
+            Type[] types = new Type[]{gbfieldtype, Type.INT_TYPE};
+            this.td = new TupleDesc(types);
+        } else {
+            this.td = new TupleDesc(new Type[]{gbfieldtype});
+        }
     }
 
     /**
@@ -37,7 +63,19 @@ public class IntegerAggregator implements Aggregator {
      *            the Tuple containing an aggregate field and a group-by field
      */
     public void mergeTupleIntoGroup(Tuple tup) {
-        // some code goes here
+        if (op == null) {
+            tupleList.add(tup);
+        } else {
+            Field gField = tup.getField(groupFieldNumber);
+            int value = ((IntField) tup.getField(valueFieldNumber)).getValue();
+            Record record;
+            if (map.containsKey(gField)) {
+                record = calculate(value, map.get(gField));
+            } else {
+                record = new Record(value, op);
+            }
+            map.put(gField, record);
+        }
     }
 
     /**
@@ -49,9 +87,100 @@ public class IntegerAggregator implements Aggregator {
      *         the constructor.
      */
     public OpIterator iterator() {
-        // some code goes here
-        throw new
-        UnsupportedOperationException("please implement me for lab2");
+        return new OpIterator() {
+            Iterator<Tuple> it;
+            @Override
+            public void open() throws DbException, TransactionAbortedException {
+                if (op != null) {
+                    for (Map.Entry<Field, Record> entry : map.entrySet()) {
+                        Tuple tuple = new Tuple(td);
+                        tuple.setField(0, entry.getKey());
+                        tuple.setField(1, new IntField(entry.getValue().groupRes));
+                        tupleList.add(tuple);
+                    }
+                }
+                it = tupleList.iterator();
+            }
+
+            @Override
+            public boolean hasNext() throws DbException, TransactionAbortedException {
+                return it.hasNext();
+            }
+
+            @Override
+            public Tuple next() throws DbException, TransactionAbortedException, NoSuchElementException {
+                return it.next();
+            }
+
+            @Override
+            public void rewind() throws DbException, TransactionAbortedException {
+                it = tupleList.iterator();
+            }
+
+            @Override
+            public TupleDesc getTupleDesc() {
+                return td;
+            }
+
+            @Override
+            public void close() {
+                it = null;
+            }
+        };
+    }
+
+
+    private Record calculate(int curValue,Record record){
+        switch (op){
+            case MIN:
+                record.groupRes = Math.min(curValue,record.groupRes);
+                break;
+            case MAX:
+                record.groupRes = Math.max(curValue,record.groupRes);
+                break;
+            case SUM:
+                record.sum += curValue;
+                record.groupRes = record.sum;
+                break;
+            case AVG:
+                record.count +=1;
+                record.sum +=curValue;
+                record.groupRes = record.avg();
+                break;
+            case COUNT:
+                record.count +=1;
+                record.groupRes = record.count;
+                break;
+            default:
+        }
+        return record;
+    }
+
+    static class Record{
+        int groupRes;
+        int sum;
+
+        int count;
+
+        int avg() {
+            return this.sum / this.count;
+        }
+
+        Record(int value, Op op){
+            this.sum = value;
+            this.count = 1;
+            switch (op){
+                case MIN:
+                case MAX:
+                case SUM:
+                case AVG:
+                    this.groupRes = value;
+                    break;
+                case COUNT:
+                    this.groupRes = 1;
+            }
+        }
+
     }
 
 }
