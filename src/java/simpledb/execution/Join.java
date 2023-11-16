@@ -11,6 +11,17 @@ import java.util.*;
  * The Join operator implements the relational join operation.
  */
 public class Join extends Operator {
+    private JoinPredicate joinPredicate;
+    private TupleDesc tp;
+
+    private OpIterator child1;
+
+    private OpIterator child2;
+
+    // 因为next是一个二重循环结构，所以child1中的tuple不是每次next都要迭代的，用一个字段表示当前应该使用的child1中的tuple
+    // 其切换到next的时机是：child2已经完整循环一次了，下次在循环就应该用下一个child1中的tuple了
+    // 注意：rewind的时候，要记得给tuple1置为child1的第一个tuple
+    private Tuple tuple1 = null;
 
     private static final long serialVersionUID = 1L;
 
@@ -26,12 +37,14 @@ public class Join extends Operator {
      *            Iterator for the right(inner) relation to join
      */
     public Join(JoinPredicate p, OpIterator child1, OpIterator child2) {
-        // some code goes here
+        this.joinPredicate = p;
+        this.child1 = child1;
+        this.child2 = child2;
+        this.tp = TupleDesc.merge(child1.getTupleDesc(), child2.getTupleDesc());
     }
 
     public JoinPredicate getJoinPredicate() {
-        // some code goes here
-        return null;
+        return joinPredicate;
     }
 
     /**
@@ -40,8 +53,7 @@ public class Join extends Operator {
      *       alias or table name.
      * */
     public String getJoinField1Name() {
-        // some code goes here
-        return null;
+        return child1.getTupleDesc().getFieldName(joinPredicate.getField1());
     }
 
     /**
@@ -50,8 +62,7 @@ public class Join extends Operator {
      *       alias or table name.
      * */
     public String getJoinField2Name() {
-        // some code goes here
-        return null;
+        return child2.getTupleDesc().getFieldName(joinPredicate.getField2());
     }
 
     /**
@@ -59,21 +70,30 @@ public class Join extends Operator {
      *      implementation logic.
      */
     public TupleDesc getTupleDesc() {
-        // some code goes here
-        return null;
+        return tp;
     }
 
     public void open() throws DbException, NoSuchElementException,
             TransactionAbortedException {
-        // some code goes here
+        child1.open();
+        child2.open();
+        if(child1.hasNext()){
+            tuple1 = child1.next();
+        }
+        super.open();
     }
 
     public void close() {
-        // some code goes here
+        super.close();
+        tuple1 = null;
     }
 
     public void rewind() throws DbException, TransactionAbortedException {
-        // some code goes here
+        child1.rewind();
+        child2.rewind();
+        if(child1.hasNext()){
+            tuple1 = child1.next();
+        }
     }
 
     /**
@@ -95,19 +115,42 @@ public class Join extends Operator {
      * @see JoinPredicate#filter
      */
     protected Tuple fetchNext() throws TransactionAbortedException, DbException {
-        // some code goes here
+        while (tuple1 != null) {
+            if (!child2.hasNext()) {
+                if (child1.hasNext()) {
+                    tuple1 = child1.next();
+                    child2.rewind();
+                } else {
+                    return null;
+                }
+            }
+            while (child2.hasNext()) {
+                Tuple tuple2 = child2.next();
+                if (joinPredicate.filter(tuple1, tuple2)) {
+                    Tuple tuple = new Tuple(tp);
+                    for (int i = 0; i < tp.numFields(); i++) {
+                        if (i < child1.getTupleDesc().numFields()) {
+                            tuple.setField(i, tuple1.getField(i));
+                        } else {
+                            tuple.setField(i, tuple2.getField(i - child1.getTupleDesc().numFields()));
+                        }
+                    }
+                    return tuple;
+                }
+            }
+        }
         return null;
     }
 
     @Override
     public OpIterator[] getChildren() {
-        // some code goes here
-        return null;
+        return new OpIterator[]{child1,child2};
     }
 
     @Override
     public void setChildren(OpIterator[] children) {
-        // some code goes here
+        child1 = children[0];
+        child2 = children[1];
     }
 
 }

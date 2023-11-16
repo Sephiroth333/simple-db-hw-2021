@@ -9,6 +9,14 @@ import java.io.Serializable;
  * Predicate compares tuples to a specified Field value.
  */
 public class Predicate implements Serializable {
+    // 要比较的字段在tuple中的编号，即此字段是tuple的第几个字段
+    int filedNumber;
+
+    // 要满足的field条件，即一个tuple的指定位置字段只有满足了这个field和op的匹配关系，才能通过过滤器
+    Field operand;
+
+    //要和field执行的操作
+    Op op;
 
     private static final long serialVersionUID = 1L;
 
@@ -19,7 +27,7 @@ public class Predicate implements Serializable {
         /**
          * Interface to access operations by integer value for command-line
          * convenience.
-         * 
+         *
          * @param i
          *            a valid integer Op index
          */
@@ -46,10 +54,10 @@ public class Predicate implements Serializable {
         }
 
     }
-    
+
     /**
      * Constructor.
-     * 
+     *
      * @param field
      *            field number of passed in tuples to compare against.
      * @param op
@@ -58,7 +66,9 @@ public class Predicate implements Serializable {
      *            field value to compare passed in tuples to
      */
     public Predicate(int field, Op op, Field operand) {
-        // some code goes here
+        this.filedNumber = field;
+        this.op = op;
+        this.operand = operand;
     }
 
     /**
@@ -66,8 +76,7 @@ public class Predicate implements Serializable {
      */
     public int getField()
     {
-        // some code goes here
-        return -1;
+        return filedNumber;
     }
 
     /**
@@ -75,32 +84,32 @@ public class Predicate implements Serializable {
      */
     public Op getOp()
     {
-        // some code goes here
-        return null;
+        return op;
     }
-    
+
     /**
      * @return the operand
      */
     public Field getOperand()
     {
-        // some code goes here
-        return null;
+        return operand;
     }
-    
+
     /**
      * Compares the field number of t specified in the constructor to the
      * operand field specified in the constructor using the operator specific in
      * the constructor. The comparison can be made through Field's compare
      * method.
-     * 
+     *
      * @param t
      *            The tuple to compare against
      * @return true if the comparison is true, false otherwise.
      */
     public boolean filter(Tuple t) {
-        // some code goes here
-        return false;
+        // 注意，比较的主体是传入的tuple，比如断言内容是 小于4,那么operand是4，op是小于
+        // 则传入3的时候，要验证的是3 < 4，即要由oriField来调用compare
+        Field oriField = t.getField(filedNumber);
+        return oriField.compare(op, operand);
     }
 
     /**
@@ -108,7 +117,11 @@ public class Predicate implements Serializable {
      * operand_string"
      */
     public String toString() {
-        // some code goes here
-        return "";
+        return "f = " +
+                filedNumber +
+                " op = " +
+                op +
+                " operand = " +
+                operand;
     }
 }
