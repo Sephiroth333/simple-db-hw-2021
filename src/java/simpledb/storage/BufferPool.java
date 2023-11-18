@@ -1,16 +1,12 @@
 package simpledb.storage;
 
-import simpledb.common.Database;
-import simpledb.common.Permissions;
-import simpledb.common.DbException;
-import simpledb.common.DeadlockException;
+import simpledb.common.*;
 import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
 import java.io.*;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -25,9 +21,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * @Threadsafe, all fields are final
  */
 public class BufferPool {
-    private Map<PageId, Page> pageMap;
+    private final Map<PageId, Page> pageMap;
 
-    private int maxPage;
+    private final int maxPage;
 
     /**
      * Bytes per page, including header.
@@ -162,8 +158,29 @@ public class BufferPool {
      */
     public void insertTuple(TransactionId tid, int tableId, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
-        // some code goes here
-        // not necessary for lab1
+        // 插入操作在没有达到刷盘时机时，tuple只写入bufferpool就行，不需要真的写入磁盘
+        HeapPage opPage = null;
+        int maxPageNo = -1;
+        for (Page page : pageMap.values()) {
+            HeapPage heapPage = (HeapPage) page;
+            maxPageNo = Math.max(maxPageNo, heapPage.getId().getPageNumber());
+            if (heapPage.getNumEmptySlots() > 0) {
+                opPage = heapPage;
+                break;
+            }
+        }
+        if (opPage == null) {
+            HeapPage page = new HeapPage(new HeapPageId(tableId, maxPageNo + 1), HeapPage.createEmptyPageData());
+            page.insertTuple(t);
+            page.markDirty(true, tid);
+            if(pageMap.size() >= maxPage){
+                evictPage();
+            }
+            pageMap.put(page.getId(), page);
+        } else {
+            opPage.insertTuple(t);
+            opPage.markDirty(true, tid);
+        }
     }
 
     /**
@@ -181,8 +198,31 @@ public class BufferPool {
      */
     public void deleteTuple(TransactionId tid, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
-        // some code goes here
-        // not necessary for lab1
+        HeapPage opPage = null;
+        for (Page page : pageMap.values()) {
+            HeapPage heapPage = (HeapPage) page;
+            Iterator<Tuple> it = heapPage.iterator();
+            while(it.hasNext()) {
+                if(it.next().equals(t)){
+                    opPage = heapPage;
+                    break;
+                }
+            }
+            if(opPage != null){
+                break;
+            }
+        }
+        if (opPage == null) {
+            int tableId = t.getRecordId().getPageId().getTableId();
+            HeapPage page = (HeapPage) Database.getCatalog().getDatabaseFile(tableId).deleteTuple(tid, t).get(0);
+            if (pageMap.size() >= maxPage) {
+                evictPage();
+            }
+            pageMap.put(page.getId(), page);
+        } else {
+            opPage.deleteTuple(t);
+            opPage.markDirty(true, tid);
+        }
     }
 
     /**

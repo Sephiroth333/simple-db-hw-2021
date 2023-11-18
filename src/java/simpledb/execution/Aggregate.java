@@ -15,12 +15,14 @@ import java.util.*;
  * min). Note that we only support aggregates over a single column, grouped by a
  * single column.
  */
+// 在groupField-1的时候，实际就是在所有行中执行group操作，只需要得到一个整张表的计算结果即可
 public class Aggregate extends Operator {
     private OpIterator child;
     private int valueFieldNumber;
     private int groupFieldNumber;
     private Aggregator.Op op;
 
+    // 其实就是包装了一下这个，实际的fetchnext方法完全用的就是aggregator的方法
     private Aggregator aggregator;
 
     private List<Tuple> childTuples = new ArrayList<>();
@@ -50,16 +52,18 @@ public class Aggregate extends Operator {
         this.valueFieldNumber = afield;
         this.op = aop;
         Type valueType = child.getTupleDesc().getFieldType(afield);
-        Type groupType = child.getTupleDesc().getFieldType(gfield);
+        Type groupType = gfield == -1 ? null: child.getTupleDesc().getFieldType(gfield);
         if (valueType.equals(Type.INT_TYPE)) {
             this.aggregator = new IntegerAggregator(gfield, groupType, afield, aop);
         } else {
             this.aggregator = new StringAggregator(gfield, groupType, afield, aop);
         }
-        if (op != null) {
+        if (gfield != -1) {
             String[] names = new String[]{child.getTupleDesc().getFieldName(gfield), "res"};
             Type[] types = new Type[]{groupType, valueType};
             this.td = new TupleDesc(types, names);
+        }else{
+            this.td = new TupleDesc(new Type[]{Type.INT_TYPE});
         }
     }
 
@@ -111,9 +115,10 @@ public class Aggregate extends Operator {
             TransactionAbortedException {
         child.open();
         while(child.hasNext()){
-
+            aggregator.mergeTupleIntoGroup(child.next());
         }
-
+        it = aggregator.iterator();
+        it.open();
         super.open();
     }
 
@@ -125,12 +130,14 @@ public class Aggregate extends Operator {
      * aggregate. Should return null if there are no more tuples.
      */
     protected Tuple fetchNext() throws TransactionAbortedException, DbException {
-        // some code goes here
+        if(it.hasNext()){
+            return it.next();
+        }
         return null;
     }
 
     public void rewind() throws DbException, TransactionAbortedException {
-        // some code goes here
+        it.rewind();
     }
 
     /**
@@ -145,23 +152,22 @@ public class Aggregate extends Operator {
      * iterator.
      */
     public TupleDesc getTupleDesc() {
-        // some code goes here
-        return null;
+        return td;
     }
 
     public void close() {
-        // some code goes here
+       it.close();
+       super.close();
     }
 
     @Override
     public OpIterator[] getChildren() {
-        // some code goes here
-        return null;
+        return new OpIterator[]{child};
     }
 
     @Override
     public void setChildren(OpIterator[] children) {
-        // some code goes here
+        this.child = children[0];
     }
 
 }

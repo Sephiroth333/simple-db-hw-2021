@@ -21,6 +21,8 @@ public class StringAggregator implements Aggregator {
 
     private TupleDesc td;
 
+    private Integer resNoGroup;
+
     private Map<Field, Integer> map = new HashMap<>();
 
     private List<Tuple> tupleList = new ArrayList<>();
@@ -37,15 +39,18 @@ public class StringAggregator implements Aggregator {
      */
 
     public StringAggregator(int gbfield, Type gbfieldtype, int afield, Op what) {
+        if (what != Op.COUNT) {
+            throw new UnsupportedOperationException();
+        }
         this.groupFieldNumber = gbfield;
         this.groupFieldType = gbfieldtype;
         this.valueFieldNumber = afield;
-        if (what != null && what.equals(Op.COUNT)) {
+        if (gbfieldtype != null) {
             Type[] types = new Type[]{gbfieldtype, Type.INT_TYPE};
             this.td = new TupleDesc(types);
             this.op = what;
         } else {
-            this.td = new TupleDesc(new Type[]{gbfieldtype});
+            this.td = new TupleDesc(new Type[]{Type.INT_TYPE});
         }
     }
 
@@ -54,8 +59,8 @@ public class StringAggregator implements Aggregator {
      * @param tup the Tuple containing an aggregate field and a group-by field
      */
     public void mergeTupleIntoGroup(Tuple tup) {
-        if (op == null) {
-            tupleList.add(tup);
+        if (groupFieldType == null) {
+            resNoGroup += 1;
         } else {
             Field gField = tup.getField(groupFieldNumber);
             if (map.containsKey(gField)) {
@@ -79,13 +84,17 @@ public class StringAggregator implements Aggregator {
             Iterator<Tuple> it;
             @Override
             public void open() throws DbException, TransactionAbortedException {
-                if(op != null){
+                if(groupFieldType != null){
                     for(Map.Entry<Field,Integer> entry: map.entrySet()){
                         Tuple tuple = new Tuple(td);
                         tuple.setField(0,entry.getKey());
                         tuple.setField(1, new IntField(entry.getValue()));
                         tupleList.add(tuple);
                     }
+                }else{
+                    Tuple tuple = new Tuple(td);
+                    tuple.setField(0, new IntField(resNoGroup));
+                    tupleList.add(tuple);
                 }
                 it = tupleList.iterator();
             }

@@ -129,4 +129,23 @@ public class Tuple implements Serializable {
         }
         throw new UnsupportedOperationException("cons tuple error! empty init TupleDesc");
     }
+
+    @Override
+    public boolean equals(Object obj) {
+        if(obj == this){
+            return true;
+        }
+        if(obj instanceof Tuple){
+            Tuple t = (Tuple) obj;
+            if(t.getTupleDesc().equals(this.getTupleDesc())){
+                for(int i=0;i< fields.length;i++){
+                    if(!getField(i).equals(t.getField(i))){
+                        return false;
+                    }
+                }
+                return true;
+            }
+        }
+        return false;
+    }
 }

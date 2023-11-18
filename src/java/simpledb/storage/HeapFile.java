@@ -89,9 +89,15 @@ public class HeapFile implements DbFile {
     }
 
     // see DbFile.java for javadocs
+    // 注意：要用RandomAccessFile实现指定写入位置的操作，RandomAccessFile在写入空间不够时，可以直接append
     public void writePage(Page page) throws IOException {
-        // some code goes here
-        // not necessary for lab1
+        int offset = page.getId().getPageNumber() * BufferPool.getPageSize();
+        try (RandomAccessFile randomAccessFile = new RandomAccessFile(file, "rw");) {
+            randomAccessFile.seek(offset);
+            randomAccessFile.write(page.getPageData());
+        } catch (Exception e) {
+            throw new IOException();
+        }
     }
 
     /**
@@ -104,17 +110,46 @@ public class HeapFile implements DbFile {
     // see DbFile.java for javadocs
     public List<Page> insertTuple(TransactionId tid, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
-        // some code goes here
-        return null;
-        // not necessary for lab1
+        int index = 0;
+        HeapPage page = (HeapPage) readPage(new HeapPageId(getId(), index));
+        while (page.getNumEmptySlots() == 0 && index < numPages()) {
+            page = (HeapPage) readPage(new HeapPageId(getId(), ++index));
+        }
+        if (index >= numPages()) {
+            page = new HeapPage(new HeapPageId(getId(), index), HeapPage.createEmptyPageData());
+        }
+        page.insertTuple(t);
+        writePage(page);
+        return Collections.singletonList(page);
     }
 
     // see DbFile.java for javadocs
     public ArrayList<Page> deleteTuple(TransactionId tid, Tuple t) throws DbException,
             TransactionAbortedException {
-        // some code goes here
-        return null;
-        // not necessary for lab1
+        int index = 0;
+        boolean deleted = false;
+        HeapPage page = (HeapPage) readPage(new HeapPageId(getId(), index));
+        while (!deleted && index < numPages()) {
+            if (page.getNumEmptySlots() < page.numSlots) {
+                try {
+                    page.deleteTuple(t);
+                    deleted = true;
+                } catch (Exception e) {
+                    index++;
+                    page = (HeapPage) readPage(new HeapPageId(getId(), index));
+                }
+            }
+        }
+        if (deleted) {
+            try {
+                writePage(page);
+            } catch (Exception e) {
+                throw new DbException("delete error!");
+            }
+            return new ArrayList<>(Collections.singletonList(page));
+        } else {
+            throw new DbException("delete error!");
+        }
     }
 
     // see DbFile.java for javadocs
