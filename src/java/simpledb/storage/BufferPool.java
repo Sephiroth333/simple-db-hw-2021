@@ -21,7 +21,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * @Threadsafe, all fields are final
  */
 public class BufferPool {
-    private final Map<PageId, Page> pageMap;
+    // 页id和该页在pageQueue中的索引
+    private final Map<PageId, Integer> pageMap;
+
+    private LinkedList<Page> pageQueue;
 
     private final int maxPage;
 
@@ -46,6 +49,7 @@ public class BufferPool {
      */
     public BufferPool(int numPages) {
         pageMap = new HashMap<>();
+        pageQueue = new LinkedList<>();
         maxPage = numPages;
     }
 
@@ -85,14 +89,15 @@ public class BufferPool {
     public Page getPage(TransactionId tid, PageId pid, Permissions perm)
             throws TransactionAbortedException, DbException {
         if (pageMap.containsKey(pid)) {
-            return pageMap.get(pid);
-        } else if (pageMap.size() < maxPage) {
+            return pageQueue.get(pageMap.get(pid));
+        } else{
             DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
             Page page = dbFile.readPage(pid);
-            pageMap.put(pid, page);
+            if(pageMap.size() >= maxPage){
+                evictPage();
+            }
+            updateCache(page);
             return page;
-        } else {
-            throw new DbException("page full！");
         }
     }
 
@@ -160,7 +165,8 @@ public class BufferPool {
             throws DbException, IOException, TransactionAbortedException {
         // 插入操作在没有达到刷盘时机时，tuple只写入bufferpool就行，不需要真的写入磁盘
         HeapPage opPage = null;
-        for (Page page : pageMap.values()) {
+        for (int index : pageMap.values()) {
+            Page page = pageQueue.get(index);
             if(page.getId().getTableId() == tableId){
                 HeapPage heapPage = (HeapPage) page;
                 if (heapPage.getNumEmptySlots() > 0) {
@@ -177,7 +183,7 @@ public class BufferPool {
                 if (pageMap.size() >= maxPage) {
                     evictPage();
                 }
-                pageMap.put(page.getId(), page);
+                updateCache(page);
             }
         } else {
             opPage.insertTuple(t);
@@ -202,7 +208,8 @@ public class BufferPool {
             throws DbException, IOException, TransactionAbortedException {
         HeapPage opPage = null;
         int tableId = t.getRecordId().getPageId().getTableId();
-        for (Page page : pageMap.values()) {
+        for (Integer index : pageMap.values()) {
+            Page page = pageQueue.get(index);
             if (page.getId().getTableId() == tableId) {
                 HeapPage heapPage = (HeapPage) page;
                 Iterator<Tuple> it = heapPage.iterator();
@@ -223,7 +230,7 @@ public class BufferPool {
                 if (pageMap.size() >= maxPage) {
                     evictPage();
                 }
-                pageMap.put(page.getId(), page);
+                updateCache(page);
             }
         } else {
             opPage.deleteTuple(t);
@@ -237,9 +244,10 @@ public class BufferPool {
      * break simpledb if running in NO STEAL mode.
      */
     public synchronized void flushAllPages() throws IOException {
-        // some code goes here
-        // not necessary for lab1
-
+        List<PageId> pageIds = new ArrayList<>(pageMap.keySet());
+        for (PageId pageId : pageIds) {
+            flushPage(pageId);
+        }
     }
 
     /**
@@ -252,8 +260,11 @@ public class BufferPool {
      * are removed from the cache so they can be reused safely
      */
     public synchronized void discardPage(PageId pid) {
-        // some code goes here
-        // not necessary for lab1
+        if (pageMap.containsKey(pid)) {
+            int index = pageMap.get(pid);
+            pageQueue.remove(index);
+            pageMap.remove(pid);
+        }
     }
 
     /**
@@ -262,8 +273,13 @@ public class BufferPool {
      * @param pid an ID indicating the page to flush
      */
     private synchronized void flushPage(PageId pid) throws IOException {
-        // some code goes here
-        // not necessary for lab1
+        if (pageMap.containsKey(pid)) {
+            Page page = pageQueue.get(pageMap.get(pid));
+            Database.getCatalog().getDatabaseFile(pid.getTableId()).writePage(page);
+            int index = pageMap.get(pid);
+            pageQueue.remove(index);
+            pageMap.remove(pid);
+        }
     }
 
     /**
@@ -279,8 +295,17 @@ public class BufferPool {
      * Flushes the page to disk to ensure dirty pages are updated on disk.
      */
     private synchronized void evictPage() throws DbException {
-        // some code goes here
-        // not necessary for lab1
+        Page page = pageQueue.removeLast();
+        pageMap.remove(page.getId());
+    }
+
+    private void updateCache(Page page){
+        if (pageMap.containsKey(page.getId())) {
+            int index = pageMap.get(page.getId());
+            pageQueue.remove(index);
+        }
+        pageQueue.addFirst(page);
+        pageMap.put(page.getId(), 0);
     }
 
 }
