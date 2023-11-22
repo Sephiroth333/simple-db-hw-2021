@@ -132,18 +132,14 @@ public class Tuple implements Serializable {
 
     @Override
     public boolean equals(Object obj) {
-        if(obj == this){
+        if (obj == this) {
             return true;
         }
-        if(obj instanceof Tuple){
+        if (obj instanceof Tuple) {
             Tuple t = (Tuple) obj;
-            if(t.getTupleDesc().equals(this.getTupleDesc())){
-                for(int i=0;i< fields.length;i++){
-                    if(!getField(i).equals(t.getField(i))){
-                        return false;
-                    }
-                }
-                return true;
+            if (t.getTupleDesc().equals(this.getTupleDesc())) {
+                // 比较两个tuple的record id是否相同
+                return t.getRecordId().equals(this.getRecordId());
             }
         }
         return false;

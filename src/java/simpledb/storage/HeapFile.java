@@ -21,7 +21,6 @@ import java.util.*;
  * @author Sam Madden
  */
 public class HeapFile implements DbFile {
-    private BufferPool bufferPool;
     private File file;
     private TupleDesc tupleDesc;
 
@@ -33,7 +32,6 @@ public class HeapFile implements DbFile {
      *            file.
      */
     public HeapFile(File f, TupleDesc td) {
-        bufferPool = new BufferPool();
         this.file = f;
         this.tupleDesc = td;
     }
@@ -119,7 +117,8 @@ public class HeapFile implements DbFile {
             page = new HeapPage(new HeapPageId(getId(), index), HeapPage.createEmptyPageData());
         }
         page.insertTuple(t);
-        writePage(page);
+        // 这里不必真的写入，假装写入，把这个page返回到bufferpool就行了，由bufferpool统一写入
+        //writePage(page);
         return Collections.singletonList(page);
     }
 
@@ -142,7 +141,8 @@ public class HeapFile implements DbFile {
         }
         if (deleted) {
             try {
-                writePage(page);
+                // 这里不必真的写入，假装写入，把这个page返回到bufferpool就行了，由bufferpool统一写入
+                //writePage(page);
             } catch (Exception e) {
                 throw new DbException("delete error!");
             }
@@ -182,7 +182,7 @@ public class HeapFile implements DbFile {
                 }
                 if (curIterator == null || !curIterator.hasNext()) {
                     while (pageNumberCursor < numPages() - 1) {
-                        HeapPage page = (HeapPage) bufferPool.getPage(tid, new HeapPageId(getId(), ++pageNumberCursor), Permissions.READ_ONLY);
+                        HeapPage page = (HeapPage) Database.getBufferPool().getPage(tid, new HeapPageId(getId(), ++pageNumberCursor), Permissions.READ_ONLY);
                         curIterator = page.iterator();
                         if(curIterator.hasNext()){
                             break;
@@ -204,7 +204,7 @@ public class HeapFile implements DbFile {
             @Override
             public void rewind() throws DbException, TransactionAbortedException {
                 pageNumberCursor = 0;
-                HeapPage heapPage = (HeapPage) bufferPool.getPage(tid, new HeapPageId(getId(), 0), Permissions.READ_ONLY);
+                HeapPage heapPage = (HeapPage) Database.getBufferPool().getPage(tid, new HeapPageId(getId(), 0), Permissions.READ_ONLY);
                 curIterator = heapPage.iterator();
             }
 

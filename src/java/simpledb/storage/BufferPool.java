@@ -160,23 +160,25 @@ public class BufferPool {
             throws DbException, IOException, TransactionAbortedException {
         // 插入操作在没有达到刷盘时机时，tuple只写入bufferpool就行，不需要真的写入磁盘
         HeapPage opPage = null;
-        int maxPageNo = -1;
         for (Page page : pageMap.values()) {
-            HeapPage heapPage = (HeapPage) page;
-            maxPageNo = Math.max(maxPageNo, heapPage.getId().getPageNumber());
-            if (heapPage.getNumEmptySlots() > 0) {
-                opPage = heapPage;
-                break;
+            if(page.getId().getTableId() == tableId){
+                HeapPage heapPage = (HeapPage) page;
+                if (heapPage.getNumEmptySlots() > 0) {
+                    opPage = heapPage;
+                    break;
+                }
             }
         }
         if (opPage == null) {
-            HeapPage page = new HeapPage(new HeapPageId(tableId, maxPageNo + 1), HeapPage.createEmptyPageData());
-            page.insertTuple(t);
-            page.markDirty(true, tid);
-            if(pageMap.size() >= maxPage){
-                evictPage();
+            HeapFile heapFile = (HeapFile) Database.getCatalog().getDatabaseFile(tableId);
+            // pages是本次insert影响到的页集合，是已经执行执行了insert操作后的页
+            List<Page> pages = heapFile.insertTuple(tid, t);
+            for (Page page : pages) {
+                if (pageMap.size() >= maxPage) {
+                    evictPage();
+                }
+                pageMap.put(page.getId(), page);
             }
-            pageMap.put(page.getId(), page);
         } else {
             opPage.insertTuple(t);
             opPage.markDirty(true, tid);
@@ -199,26 +201,30 @@ public class BufferPool {
     public void deleteTuple(TransactionId tid, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
         HeapPage opPage = null;
+        int tableId = t.getRecordId().getPageId().getTableId();
         for (Page page : pageMap.values()) {
-            HeapPage heapPage = (HeapPage) page;
-            Iterator<Tuple> it = heapPage.iterator();
-            while(it.hasNext()) {
-                if(it.next().equals(t)){
-                    opPage = heapPage;
+            if (page.getId().getTableId() == tableId) {
+                HeapPage heapPage = (HeapPage) page;
+                Iterator<Tuple> it = heapPage.iterator();
+                while (it.hasNext()) {
+                    if (it.next().equals(t)) {
+                        opPage = heapPage;
+                        break;
+                    }
+                }
+                if (opPage != null) {
                     break;
                 }
             }
-            if(opPage != null){
-                break;
-            }
         }
         if (opPage == null) {
-            int tableId = t.getRecordId().getPageId().getTableId();
-            HeapPage page = (HeapPage) Database.getCatalog().getDatabaseFile(tableId).deleteTuple(tid, t).get(0);
-            if (pageMap.size() >= maxPage) {
-                evictPage();
+            List<Page> pages = Database.getCatalog().getDatabaseFile(tableId).deleteTuple(tid, t);
+            for (Page page : pages) {
+                if (pageMap.size() >= maxPage) {
+                    evictPage();
+                }
+                pageMap.put(page.getId(), page);
             }
-            pageMap.put(page.getId(), page);
         } else {
             opPage.deleteTuple(t);
             opPage.markDirty(true, tid);

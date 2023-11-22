@@ -375,7 +375,7 @@ public class HeapPage implements Page {
             @Override
             public Tuple next() {
                 for(int i=tuplePos+1;i<getNumTuples();i++){
-                    if(tuples[i] != null){
+                    if(isSlotUsed(i)){
                         cursor++;
                         tuplePos = i;
                         return tuples[i];
