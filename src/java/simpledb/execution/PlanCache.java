@@ -8,9 +8,13 @@ import java.util.Set;
 
 /** A PlanCache is a helper class that can be used to store the best
  * way to order a given set of joins */
+// 注意，最优的评价标准就是简单的看cost的大小
 public class PlanCache {
+    // node集合对应的最优排序
     final Map<Set<LogicalJoinNode>,List<LogicalJoinNode>> bestOrders= new HashMap<>();
+    // node集合对应的最优消耗
     final Map<Set<LogicalJoinNode>,Double> bestCosts= new HashMap<>();
+    // node集合对应的最优记录数
     final Map<Set<LogicalJoinNode>,Integer> bestCardinalities = new HashMap<>();
     
     /** Add a new cost, cardinality and ordering for a particular join set.  Does not verify that the

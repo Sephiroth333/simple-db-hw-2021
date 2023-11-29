@@ -6,10 +6,10 @@ import simpledb.execution.Predicate;
 import simpledb.execution.SeqScan;
 import simpledb.storage.*;
 import simpledb.transaction.Transaction;
+import simpledb.transaction.TransactionId;
+import sun.java2d.marlin.stats.Histogram;
 
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -20,6 +20,20 @@ import java.util.concurrent.ConcurrentMap;
  * This class is not needed in implementing lab1 and lab2.
  */
 public class TableStats {
+
+    private int tupleSum;
+
+    private Set<PageId> pageSet;
+
+    private TupleDesc tupleDesc;
+
+    private int ioCostPerPage;
+
+    private ConcurrentHashMap<Integer, IntHistogram> intHisMap = new ConcurrentHashMap<>();
+
+    private ConcurrentHashMap<Integer, StringHistogram> strHisMap = new ConcurrentHashMap<>();
+
+
 
     private static final ConcurrentMap<String, TableStats> statsMap = new ConcurrentHashMap<>();
 
@@ -78,15 +92,65 @@ public class TableStats {
      *            The cost per page of IO. This doesn't differentiate between
      *            sequential-scan IO and disk seeks.
      */
+    // 是不是就是根据field的类型构建每个field的直方图存在对象中，遍历了表两次
     public TableStats(int tableid, int ioCostPerPage) {
-        // For this function, you'll have to get the
-        // DbFile for the table in question,
-        // then scan through its tuples and calculate
-        // the values that you need.
-        // You should try to do this reasonably efficiently, but you don't
-        // necessarily have to (for example) do everything
-        // in a single scan of the table.
-        // some code goes here
+        this.ioCostPerPage = ioCostPerPage;
+        this.tupleDesc = Database.getCatalog().getTupleDesc(tableid);
+        this.pageSet = new HashSet<>();
+
+        TransactionId transactionId = new TransactionId();
+        DbFile dbFile = Database.getCatalog().getDatabaseFile(tableid);
+        DbFileIterator it =  dbFile.iterator(transactionId);
+        Map<Integer,Integer> minMap = new HashMap<>();
+        Map<Integer,Integer> maxMap = new HashMap<>();
+        try {
+            it.open();
+            while (it.hasNext()) {
+                // 遍历一次，计算总tuple数和page数，算出来int字段的最大最小值
+                Tuple tuple = it.next();
+                pageSet.add(tuple.getRecordId().getPageId());
+                tupleSum++;
+                for (int i = 0; i < tupleDesc.numFields(); i++) {
+                    Field field = tuple.getField(i);
+                    if (field.getType().equals(Type.INT_TYPE)) {
+                        int value = ((IntField) field).getValue();
+                        minMap.putIfAbsent(i, value);
+                        minMap.put(i, Math.min(minMap.get(i), value));
+                        maxMap.putIfAbsent(i, value);
+                        maxMap.put(i, Math.max(maxMap.get(i), value));
+                    }
+                }
+            }
+            for (int i = 0; i < tupleDesc.numFields(); i++) {
+                Type type = tupleDesc.getFieldType(i);
+                if (type.equals(Type.INT_TYPE)) {
+                    intHisMap.put(i, new IntHistogram(NUM_HIST_BINS, minMap.get(i), maxMap.get(i)));
+                }else{
+                    strHisMap.put(i, new StringHistogram(NUM_HIST_BINS));
+                }
+            }
+            it.rewind();
+            while (it.hasNext()) {
+                // 遍历一次，计算总tuple数和page数，算出来int字段的最大最小值
+                Tuple tuple = it.next();
+                for (int i = 0; i < tupleDesc.numFields(); i++) {
+                    Field field = tuple.getField(i);
+                    if (field.getType().equals(Type.INT_TYPE)) {
+                        IntField intField = (IntField) field;
+                        IntHistogram intHistogram = intHisMap.get(i);
+                        intHistogram.addValue(intField.getValue());
+                    } else {
+                        StringField strField = (StringField) field;
+                        StringHistogram strHistogram = strHisMap.get(i);
+                        strHistogram.addValue(strField.getValue());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+
     }
 
     /**
@@ -101,9 +165,9 @@ public class TableStats {
      * 
      * @return The estimated cost of scanning the table.
      */
+    // 这个应该是页数 x 每页的扫描成本即可
     public double estimateScanCost() {
-        // some code goes here
-        return 0;
+        return pageSet.size() * ioCostPerPage;
     }
 
     /**
@@ -115,14 +179,14 @@ public class TableStats {
      * @return The estimated cardinality of the scan with the specified
      *         selectivityFactor
      */
+    // 这个应该是总tuple数 x selectivityFactor就行
     public int estimateTableCardinality(double selectivityFactor) {
-        // some code goes here
-        return 0;
+        return (int) (tupleSum * selectivityFactor);
     }
 
     /**
      * The average selectivity of the field under op.
-     * @param field
+     * @param fieldNumber
      *        the index of the field
      * @param op
      *        the operator in the predicate
@@ -130,9 +194,16 @@ public class TableStats {
      * tuple, of which we do not know the value of the field, return the
      * expected selectivity. You may estimate this value from the histograms.
      * */
-    public double avgSelectivity(int field, Predicate.Op op) {
-        // some code goes here
-        return 1.0;
+    // 用直方图里面每个桶中单个值的平均期望tuple数加起来 除以 总tuple数？
+    public double avgSelectivity(int fieldNumber, Predicate.Op op) {
+        Type type = tupleDesc.getFieldType(fieldNumber);
+        if (type.equals(Type.INT_TYPE)) {
+            IntHistogram intHistogram = intHisMap.get(fieldNumber);
+            return intHistogram.avgSelectivity();
+        } else {
+            StringHistogram stringHistogram = strHisMap.get(fieldNumber);
+            return stringHistogram.avgSelectivity();
+        }
     }
 
     /**
@@ -148,17 +219,24 @@ public class TableStats {
      * @return The estimated selectivity (fraction of tuples that satisfy) the
      *         predicate
      */
+    // 直接调用直方图的方法即可
     public double estimateSelectivity(int field, Predicate.Op op, Field constant) {
-        // some code goes here
-        return 1.0;
+        Type type = tupleDesc.getFieldType(field);
+        if (type.equals(Type.INT_TYPE)) {
+            IntHistogram intHistogram = intHisMap.get(field);
+            return intHistogram.estimateSelectivity(op, ((IntField) constant).getValue());
+        } else {
+            StringHistogram stringHistogram = strHisMap.get(field);
+            return stringHistogram.estimateSelectivity(op, ((StringField) constant).getValue());
+        }
     }
 
     /**
      * return the total number of tuples in this table
      * */
+    // 总元祖数
     public int totalTuples() {
-        // some code goes here
-        return 0;
+        return tupleSum;
     }
 
 }
